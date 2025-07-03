@@ -1,5 +1,5 @@
 const bcrypt = require('bcryptjs');
 
-bcrypt.hash('123456', 10).then(hash => {
+bcrypt.hash('Admin@attendance', 10).then(hash => {
   console.log("Hashed password:", hash);
 });
