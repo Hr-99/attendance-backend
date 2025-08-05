@@ -10,7 +10,10 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// startAttendanceCleanupJob(); 
+// startAttendanceCleanupJob(); works in scheduler.js for server taht keeps running
+
+
+
 
 mongoose.connect(process.env.MONGO_URI, {
     useNewUrlParser: true,
