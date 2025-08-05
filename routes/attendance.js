@@ -3,6 +3,7 @@ const router = express.Router();
 const Attendance = require('../models/Attendance');
 const auth = require('../middleware/auth');
 const moment = require('moment-timezone');
+const runMonthlyCleanup = require('../utils/monthlyCleanup');
 
 // ✅ Check-In
 router.post('/checkin', auth, async (req, res) => {
@@ -63,8 +64,10 @@ router.get('/all', auth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
 
   try {
-        await runMonthlyCleanup();
          // ⬅️ Trigger cleanup here
+
+        await runMonthlyCleanup();
+
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
