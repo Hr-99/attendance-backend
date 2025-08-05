@@ -60,18 +60,87 @@ router.post('/checkout', auth, async (req, res) => {
 
 // ✅ Admin Paginated View
 // ✅ Admin Paginated Route with IST-formatted times
+// router.get('/all', auth, async (req, res) => {
+//   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
+
+//   try {
+//          // ⬅️ Trigger cleanup here
+
+//         await runMonthlyCleanup();
+
+
+//     const page = parseInt(req.query.page) || 1;
+//     const limit = parseInt(req.query.limit) || 10;
+//     const skip = (page - 1) * limit;
+
+//     const filters = {};
+//     if (req.query.from && req.query.to) {
+//       filters.date = {
+//         $gte: req.query.from,
+//         $lte: req.query.to,
+//       };
+//     }
+//     if (req.query.user) {
+//       filters.user = req.query.user;
+//     }
+
+//     const [records, totalRecords] = await Promise.all([
+//       Attendance.find(filters)
+//         .sort({ date: -1 })
+//         .skip(skip)
+//         .limit(limit)
+//         .populate('user', 'name email'),
+//       Attendance.countDocuments(filters),
+//     ]);
+
+//  const formatted = records.map((rec, index) => {
+//   const rawCheckIn = rec.checkInTime;
+//   const istCheckIn = rawCheckIn
+//     ? moment.utc(rawCheckIn).tz('Asia/Kolkata').format('hh:mm A')
+//     : null;
+
+//   // Log first record for debug
+//   if (index === 0) {
+//     console.log("🕓 Raw UTC:", rawCheckIn);
+//     console.log("🕕 IST:", istCheckIn);
+//   }
+
+//   return {
+//     _id: rec._id,
+//     user: rec.user,
+//     date: moment.utc(rec.date).tz('Asia/Kolkata').format('YYYY-MM-DD'),
+//     checkInTime: istCheckIn,
+//     checkOutTime: rec.checkOutTime
+//       ? moment.utc(rec.checkOutTime).tz('Asia/Kolkata').format('hh:mm A')
+//       : null,
+//     checkInLocation: rec.checkInLocation,
+//     checkOutLocation: rec.checkOutLocation,
+//   };
+// });
+
+
+//     res.json({
+//       data: formatted,
+//       page,
+//       totalPages: Math.ceil(totalRecords / limit),
+//       totalRecords,
+//     });
+//   } catch (err) {
+//     console.error('Pagination error:', err);
+//     res.status(500).json({ error: 'Server error' });
+//   }
+// });
+
+
 router.get('/all', auth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
 
   try {
-         // ⬅️ Trigger cleanup here
-
-        await runMonthlyCleanup();
-
+    // ⬅️ Trigger cleanup here
+    await runMonthlyCleanup();
 
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
 
     const filters = {};
     if (req.query.from && req.query.to) {
@@ -84,45 +153,47 @@ router.get('/all', auth, async (req, res) => {
       filters.user = req.query.user;
     }
 
+    let recordsQuery = Attendance.find(filters).sort({ date: -1 }).populate('user', 'name email');
+
+    // Handle page=0 and limit=0 to return all
+    if (!(page === 0 && limit === 0)) {
+      const skip = (page - 1) * limit;
+      recordsQuery = recordsQuery.skip(skip).limit(limit);
+    }
+
     const [records, totalRecords] = await Promise.all([
-      Attendance.find(filters)
-        .sort({ date: -1 })
-        .skip(skip)
-        .limit(limit)
-        .populate('user', 'name email'),
+      recordsQuery,
       Attendance.countDocuments(filters),
     ]);
 
- const formatted = records.map((rec, index) => {
-  const rawCheckIn = rec.checkInTime;
-  const istCheckIn = rawCheckIn
-    ? moment.utc(rawCheckIn).tz('Asia/Kolkata').format('hh:mm A')
-    : null;
+    const formatted = records.map((rec, index) => {
+      const rawCheckIn = rec.checkInTime;
+      const istCheckIn = rawCheckIn
+        ? moment.utc(rawCheckIn).tz('Asia/Kolkata').format('hh:mm A')
+        : null;
 
-  // Log first record for debug
-  if (index === 0) {
-    console.log("🕓 Raw UTC:", rawCheckIn);
-    console.log("🕕 IST:", istCheckIn);
-  }
+      if (index === 0) {
+        console.log("🕓 Raw UTC:", rawCheckIn);
+        console.log("🕕 IST:", istCheckIn);
+      }
 
-  return {
-    _id: rec._id,
-    user: rec.user,
-    date: moment.utc(rec.date).tz('Asia/Kolkata').format('YYYY-MM-DD'),
-    checkInTime: istCheckIn,
-    checkOutTime: rec.checkOutTime
-      ? moment.utc(rec.checkOutTime).tz('Asia/Kolkata').format('hh:mm A')
-      : null,
-    checkInLocation: rec.checkInLocation,
-    checkOutLocation: rec.checkOutLocation,
-  };
-});
-
+      return {
+        _id: rec._id,
+        user: rec.user,
+        date: moment.utc(rec.date).tz('Asia/Kolkata').format('YYYY-MM-DD'),
+        checkInTime: istCheckIn,
+        checkOutTime: rec.checkOutTime
+          ? moment.utc(rec.checkOutTime).tz('Asia/Kolkata').format('hh:mm A')
+          : null,
+        checkInLocation: rec.checkInLocation,
+        checkOutLocation: rec.checkOutLocation,
+      };
+    });
 
     res.json({
       data: formatted,
-      page,
-      totalPages: Math.ceil(totalRecords / limit),
+      page: page === 0 ? 1 : page,
+      totalPages: page === 0 ? 1 : Math.ceil(totalRecords / limit),
       totalRecords,
     });
   } catch (err) {
@@ -130,6 +201,11 @@ router.get('/all', auth, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
+
+
+
+
+
 
 
 module.exports = router;
