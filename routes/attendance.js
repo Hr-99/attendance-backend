@@ -4,40 +4,63 @@ const Attendance = require('../models/Attendance');
 const auth = require('../middleware/auth');
 const moment = require('moment-timezone');
 const runMonthlyCleanup = require('../utils/monthlyCleanup');
+const multer = require('multer');
+const path = require('path');
+
+// ✅ Multer storage setup
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/');
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    cb(null, `${req.user.id}-${Date.now()}${ext}`);
+  }
+});
+
+const upload = multer({ storage });
 
 // ✅ Check-In
-router.post('/checkin', auth, async (req, res) => {
+router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
   try {
-    const { lat, lon } = req.body;
+    const { lat, lon } = req.body; // ✅ now works with multipart/form-data
 
-    // Get current IST time
-    const nowIST = moment().tz('Asia/Kolkata');
-    const dateIST = nowIST.format('YYYY-MM-DD');
-
-    const existing = await Attendance.findOne({ user: req.user.id, date: dateIST });
-    if (existing && existing.checkInTime) {
-      return res.status(400).send("Already checked in");
+    if (!lat || !lon || !req.file) {
+      return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
     }
 
     const attendance = new Attendance({
       user: req.user.id,
-      checkInTime: nowIST.toDate(), // Save as IST time
-      checkInLocation: { lat, lon },
-      date: dateIST
+      checkInLocation: {
+        lat: parseFloat(lat),
+        lon: parseFloat(lon)
+      },
+      checkInPhoto: req.file.filename,
+      checkInTime: new Date(),
     });
 
     await attendance.save();
-    res.send("Checked in");
+    res.status(201).json({ message: 'Check-in successful' });
+
   } catch (err) {
     console.error('Check-in error:', err);
-    res.status(500).send("Server error");
+    res.status(500).json({ error: 'Server error during check-in' });
   }
 });
 
+
+
 // ✅ Check-Out
-router.post('/checkout', auth, async (req, res) => {
+router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
   try {
-    const { lat, lon } = req.body;
+    const lat = parseFloat(req.body.lat);
+    const lon = parseFloat(req.body.lon);
+console.log('req.body:', req.body); // Should contain lat and lon
+console.log('req.file:', req.file); // Should contain photo info
+
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).send("Latitude or Longitude missing or invalid.");
+    }
 
     const nowIST = moment().tz('Asia/Kolkata');
     const dateIST = nowIST.format('YYYY-MM-DD');
@@ -47,10 +70,11 @@ router.post('/checkout', auth, async (req, res) => {
       return res.status(400).send("Not checked in or already checked out");
     }
 
-    attendance.checkOutTime = nowIST.toDate(); // Save as IST time
+    attendance.checkOutTime = nowIST.toDate();
     attendance.checkOutLocation = { lat, lon };
-    await attendance.save();
+    attendance.checkOutPhoto = req.file?.filename;
 
+    await attendance.save();
     res.send("Checked out");
   } catch (err) {
     console.error('Check-out error:', err);
@@ -58,154 +82,7 @@ router.post('/checkout', auth, async (req, res) => {
   }
 });
 
-// ✅ Admin Paginated View
-// ✅ Admin Paginated Route with IST-formatted times
-// router.get('/all', auth, async (req, res) => {
-//   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
-
-//   try {
-//          // ⬅️ Trigger cleanup here
-
-//         await runMonthlyCleanup();
-
-
-//     const page = parseInt(req.query.page) || 1;
-//     const limit = parseInt(req.query.limit) || 10;
-//     const skip = (page - 1) * limit;
-
-//     const filters = {};
-//     if (req.query.from && req.query.to) {
-//       filters.date = {
-//         $gte: req.query.from,
-//         $lte: req.query.to,
-//       };
-//     }
-//     if (req.query.user) {
-//       filters.user = req.query.user;
-//     }
-
-//     const [records, totalRecords] = await Promise.all([
-//       Attendance.find(filters)
-//         .sort({ date: -1 })
-//         .skip(skip)
-//         .limit(limit)
-//         .populate('user', 'name email'),
-//       Attendance.countDocuments(filters),
-//     ]);
-
-//  const formatted = records.map((rec, index) => {
-//   const rawCheckIn = rec.checkInTime;
-//   const istCheckIn = rawCheckIn
-//     ? moment.utc(rawCheckIn).tz('Asia/Kolkata').format('hh:mm A')
-//     : null;
-
-//   // Log first record for debug
-//   if (index === 0) {
-//     console.log("🕓 Raw UTC:", rawCheckIn);
-//     console.log("🕕 IST:", istCheckIn);
-//   }
-
-//   return {
-//     _id: rec._id,
-//     user: rec.user,
-//     date: moment.utc(rec.date).tz('Asia/Kolkata').format('YYYY-MM-DD'),
-//     checkInTime: istCheckIn,
-//     checkOutTime: rec.checkOutTime
-//       ? moment.utc(rec.checkOutTime).tz('Asia/Kolkata').format('hh:mm A')
-//       : null,
-//     checkInLocation: rec.checkInLocation,
-//     checkOutLocation: rec.checkOutLocation,
-//   };
-// });
-
-
-//     res.json({
-//       data: formatted,
-//       page,
-//       totalPages: Math.ceil(totalRecords / limit),
-//       totalRecords,
-//     });
-//   } catch (err) {
-//     console.error('Pagination error:', err);
-//     res.status(500).json({ error: 'Server error' });
-//   }
-// });
-
-// ---working without duration----
-// router.get('/all', auth, async (req, res) => {
-//   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
-
-//   try {
-//     // ⬅️ Trigger cleanup here
-//     await runMonthlyCleanup();
-
-//     const page = parseInt(req.query.page) || 1;
-//     const limit = parseInt(req.query.limit) || 10;
-
-//     const filters = {};
-//     if (req.query.from && req.query.to) {
-//       filters.date = {
-//         $gte: req.query.from,
-//         $lte: req.query.to,
-//       };
-//     }
-//     if (req.query.user) {
-//       filters.user = req.query.user;
-//     }
-
-//     let recordsQuery = Attendance.find(filters).sort({ date: -1 }).populate('user', 'name email');
-
-//     // Handle page=0 and limit=0 to return all
-//     if (!(page === 0 && limit === 0)) {
-//       const skip = (page - 1) * limit;
-//       recordsQuery = recordsQuery.skip(skip).limit(limit);
-//     }
-
-//     const [records, totalRecords] = await Promise.all([
-//       recordsQuery,
-//       Attendance.countDocuments(filters),
-//     ]);
-
-//     const formatted = records.map((rec, index) => {
-//       const rawCheckIn = rec.checkInTime;
-//       const istCheckIn = rawCheckIn
-//         ? moment.utc(rawCheckIn).tz('Asia/Kolkata').format('hh:mm A')
-//         : null;
-
-//       if (index === 0) {
-//         console.log("🕓 Raw UTC:", rawCheckIn);
-//         console.log("🕕 IST:", istCheckIn);
-//       }
-
-//       return {
-//         _id: rec._id,
-//         user: rec.user,
-//         date: moment.utc(rec.date).tz('Asia/Kolkata').format('YYYY-MM-DD'),
-//         checkInTime: istCheckIn,
-//         checkOutTime: rec.checkOutTime
-//           ? moment.utc(rec.checkOutTime).tz('Asia/Kolkata').format('hh:mm A')
-//           : null,
-//         checkInLocation: rec.checkInLocation,
-//         checkOutLocation: rec.checkOutLocation,
-//       };
-//     });
-
-//     res.json({
-//       data: formatted,
-//       page: page === 0 ? 1 : page,
-//       totalPages: page === 0 ? 1 : Math.ceil(totalRecords / limit),
-//       totalRecords,
-//     });
-//   } catch (err) {
-//     console.error('Pagination error:', err);
-//     res.status(500).json({ error: 'Server error' });
-//   }
-// });
-
-
-
-// -----with duration-----
-
+// ✅ Admin route with duration (unchanged from working version)
 router.get('/all', auth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
 
@@ -263,11 +140,11 @@ router.get('/all', auth, async (req, res) => {
       }
 
       if (index === 0) {
-        console.log("🕓 Raw UTC Check-in:", rawCheckIn);
-        console.log("🕕 IST Check-in:", istCheckIn);
-        console.log("🕓 Raw UTC Check-out:", rawCheckOut);
-        console.log("🕕 IST Check-out:", istCheckOut);
-        console.log("⏱️ Duration:", duration);
+        console.log("\uD83D\uDD53 Raw UTC Check-in:", rawCheckIn);
+        console.log("\uD83D\uDD56 IST Check-in:", istCheckIn);
+        console.log("\uD83D\uDD53 Raw UTC Check-out:", rawCheckOut);
+        console.log("\uD83D\uDD56 IST Check-out:", istCheckOut);
+        console.log("\u23F1️ Duration:", duration);
       }
 
       return {
@@ -293,11 +170,5 @@ router.get('/all', auth, async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 });
-
-
-
-
-
-
 
 module.exports = router;
