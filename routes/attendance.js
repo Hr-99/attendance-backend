@@ -37,6 +37,8 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
       },
       checkInPhoto: req.file.filename,
       checkInTime: new Date(),
+        date: moment().tz("Asia/Kolkata").format("YYYY-MM-DD"),
+
     });
 
     await attendance.save();
