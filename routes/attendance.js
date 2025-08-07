@@ -23,10 +23,22 @@ const upload = multer({ storage });
 // ✅ Check-In
 router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
   try {
-    const { lat, lon } = req.body; // ✅ now works with multipart/form-data
+    const { lat, lon } = req.body;
 
     if (!lat || !lon || !req.file) {
       return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
+    }
+
+    const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
+
+    // 🔐 Check if already checked in today
+    const existingAttendance = await Attendance.findOne({
+      user: req.user.id,
+      date: today
+    });
+
+    if (existingAttendance) {
+      return res.status(400).json({ error: 'Already checked in today' });
     }
 
     const attendance = new Attendance({
@@ -37,8 +49,7 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
       },
       checkInPhoto: req.file.filename,
       checkInTime: new Date(),
-        date: moment().tz("Asia/Kolkata").format("YYYY-MM-DD"),
-
+      date: today
     });
 
     await attendance.save();
@@ -52,37 +63,52 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
 
 
 
+
 // ✅ Check-Out
 router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
   try {
-    const lat = parseFloat(req.body.lat);
-    const lon = parseFloat(req.body.lon);
-console.log('req.body:', req.body); // Should contain lat and lon
-console.log('req.file:', req.file); // Should contain photo info
+    const { lat, lon } = req.body;
 
-    if (isNaN(lat) || isNaN(lon)) {
-      return res.status(400).send("Latitude or Longitude missing or invalid.");
+    if (!lat || !lon || !req.file) {
+      return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
     }
 
-    const nowIST = moment().tz('Asia/Kolkata');
-    const dateIST = nowIST.format('YYYY-MM-DD');
+    const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
-    const attendance = await Attendance.findOne({ user: req.user.id, date: dateIST });
-    if (!attendance || attendance.checkOutTime) {
-      return res.status(400).send("Not checked in or already checked out");
+    // 📦 Find today's attendance record
+    const attendance = await Attendance.findOne({
+      user: req.user.id,
+      date: today
+    });
+
+    if (!attendance) {
+      return res.status(404).json({ error: 'No check-in found for today' });
     }
 
-    attendance.checkOutTime = nowIST.toDate();
-    attendance.checkOutLocation = { lat, lon };
-    attendance.checkOutPhoto = req.file?.filename;
+    // 🔐 Prevent double check-out
+    if (attendance.checkOutTime) {
+      return res.status(400).json({ error: 'Already checked out today' });
+    }
+
+    // ✅ Proceed to update
+    attendance.checkOutLocation = {
+      lat: parseFloat(lat),
+      lon: parseFloat(lon)
+    };
+    attendance.checkOutPhoto = req.file.filename;
+    attendance.checkOutTime = new Date();
 
     await attendance.save();
-    res.send("Checked out");
+
+    res.status(200).json({ message: 'Check-out successful' });
+
   } catch (err) {
     console.error('Check-out error:', err);
-    res.status(500).send("Server error");
+    res.status(500).json({ error: 'Server error during check-out' });
   }
 });
+
+
 
 // ✅ Admin route with duration (unchanged from working version)
 router.get('/all', auth, async (req, res) => {
