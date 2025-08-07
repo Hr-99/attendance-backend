@@ -11,6 +11,10 @@ app.use(cors());
 app.use(express.json());
 
 // startAttendanceCleanupJob(); works in scheduler.js for server taht keeps running
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
 
 
 
