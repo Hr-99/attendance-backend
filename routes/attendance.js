@@ -6,6 +6,7 @@ const moment = require('moment-timezone');
 const runMonthlyCleanup = require('../utils/monthlyCleanup');
 const multer = require('multer');
 const path = require('path');
+const { error } = require('console');
 
 // ✅ Multer storage setup
 const storage = multer.diskStorage({
@@ -40,7 +41,7 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
     });
 
     if (existing) {
-      return res.status(200).json({ message: 'Already checked in today' }); // ✅ 200 with message
+      return res.status(400).json({ error: 'Already checked in today' }); // ✅ 200 with message
     }
 
     // Step 3: Save new check-in
@@ -83,12 +84,12 @@ router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
     });
 
     if (!attendance) {
-      return res.status(200).json({ message: 'No check-in found for today' });
+      return res.status(400).json({ error: 'No check-in found for today' });
     }
 
     // 🔐 Prevent double check-out
     if (attendance.checkOutTime) {
-  return res.status(200).json({ message: 'Already checked in today' });
+  return res.status(400).json({ error: 'Already checked in today' });
     }
 
     // ✅ Proceed to update
