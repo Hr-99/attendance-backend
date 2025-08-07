@@ -38,7 +38,7 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
     });
 
     if (existingAttendance) {
-      return res.status(400).json({ error: 'Already checked in today' });
+  return res.status(200).json({ message: 'Already checked in today' });
     }
 
     const attendance = new Attendance({
@@ -82,12 +82,12 @@ router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
     });
 
     if (!attendance) {
-      return res.status(404).json({ error: 'No check-in found for today' });
+      return res.status(200).json({ message: 'No check-in found for today' });
     }
 
     // 🔐 Prevent double check-out
     if (attendance.checkOutTime) {
-      return res.status(400).json({ error: 'Already checked out today' });
+  return res.status(200).json({ message: 'Already checked in today' });
     }
 
     // ✅ Proceed to update
