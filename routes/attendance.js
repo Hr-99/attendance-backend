@@ -21,6 +21,7 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // ✅ Check-In
+
 router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
   try {
     const { lat, lon } = req.body;
@@ -29,18 +30,21 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
     }
 
-    const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
+    // Get start and end of today in IST
+    const todayStart = moment().tz("Asia/Kolkata").startOf("day").toDate();
+    const todayEnd = moment().tz("Asia/Kolkata").endOf("day").toDate();
 
     // 🔐 Check if already checked in today
     const existingAttendance = await Attendance.findOne({
       user: req.user.id,
-      date: today
+      date: { $gte: todayStart, $lte: todayEnd }
     });
 
     if (existingAttendance) {
-  return res.status(200).json({ message: 'Already checked in today' });
+      return res.status(200).json({ message: 'Already checked in today' });
     }
 
+    // Save attendance
     const attendance = new Attendance({
       user: req.user.id,
       checkInLocation: {
@@ -48,8 +52,8 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
         lon: parseFloat(lon)
       },
       checkInPhoto: req.file.filename,
-      checkInTime: new Date(),
-      date: today
+      checkInTime: new Date(), // stored in UTC
+      date: todayStart // store the normalized date (00:00 IST)
     });
 
     await attendance.save();
@@ -60,6 +64,7 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
     res.status(500).json({ error: 'Server error during check-in' });
   }
 });
+
 
 
 
