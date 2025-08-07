@@ -26,41 +26,44 @@ const upload = multer({ storage });
 router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
   try {
     const { lat, lon } = req.body;
+
     if (!lat || !lon || !req.file) {
       return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
     }
 
-    // Step 1: Get today's start and end in IST, convert to UTC
-    const startOfTodayUTC = moment.tz('Asia/Kolkata').startOf('day').utc().toDate();
-    const endOfTodayUTC = moment.tz('Asia/Kolkata').endOf('day').utc().toDate();
+    const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
-    // Step 2: Check if already checked in today
+    // Prevent duplicate check-in
     const existing = await Attendance.findOne({
       user: req.user.id,
-      checkInTime: { $gte: startOfTodayUTC, $lte: endOfTodayUTC }
+      date: today
     });
 
     if (existing) {
-      return res.status(400).json({ error: 'Already checked in today' }); // ✅ 200 with message
+      return res.status(400).json({ error: 'Already checked in today' });
     }
 
-    // Step 3: Save new check-in
     const attendance = new Attendance({
       user: req.user.id,
-      checkInTime: new Date(),
-      checkInLocation: { lat: parseFloat(lat), lon: parseFloat(lon) },
-      checkInPhoto: req.file.filename
+      date: today,
+      checkInLocation: {
+        lat: parseFloat(lat),
+        lon: parseFloat(lon)
+      },
+      checkInPhoto: req.file.filename,
+      checkInTime: new Date()
     });
 
     await attendance.save();
 
-    res.status(201).json({ message: 'Check-in successful' });
+    res.status(200).json({ message: 'Check-in successful' });
 
   } catch (err) {
     console.error('Check-in error:', err);
     res.status(500).json({ error: 'Server error during check-in' });
   }
 });
+
 
 
 
@@ -77,22 +80,28 @@ router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
 
     const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
-    // 📦 Find today's attendance record
+    // Debug log to verify values
+    console.log('Checkout Request:', {
+      userId: req.user.id,
+      today
+    });
+
+    // Find today's attendance record
     const attendance = await Attendance.findOne({
       user: req.user.id,
       date: today
     });
 
     if (!attendance) {
-      return res.status(400).json({ error: 'No check-in found for today' });
+      return res.status(400).json({ error: 'No check-in record found for today' });
     }
 
-    // 🔐 Prevent double check-out
+    // Prevent duplicate checkout
     if (attendance.checkOutTime) {
-  return res.status(400).json({ error: 'Already checked in today' });
+      return res.status(400).json({ error: 'Already checked out today' }); // ✅ typo fixed
     }
 
-    // ✅ Proceed to update
+    // Proceed to update checkout info
     attendance.checkOutLocation = {
       lat: parseFloat(lat),
       lon: parseFloat(lon)
@@ -109,6 +118,7 @@ router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
     res.status(500).json({ error: 'Server error during check-out' });
   }
 });
+
 
 
 
