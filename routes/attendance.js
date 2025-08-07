@@ -25,39 +25,34 @@ const upload = multer({ storage });
 router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
   try {
     const { lat, lon } = req.body;
-
     if (!lat || !lon || !req.file) {
       return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
     }
 
-    // Get current day start and end in IST, but store them in UTC
-    const todayStartIST = moment.tz("Asia/Kolkata").startOf('day');
-    const todayEndIST = moment.tz("Asia/Kolkata").endOf('day');
+    // Step 1: Get today's start and end in IST, convert to UTC
+    const startOfTodayUTC = moment.tz('Asia/Kolkata').startOf('day').utc().toDate();
+    const endOfTodayUTC = moment.tz('Asia/Kolkata').endOf('day').utc().toDate();
 
-    const todayStartUTC = todayStartIST.clone().utc().toDate();
-    const todayEndUTC = todayEndIST.clone().utc().toDate();
-
-    // 🔐 Check if already checked in today (based on checkInTime)
-    const existingAttendance = await Attendance.findOne({
+    // Step 2: Check if already checked in today
+    const existing = await Attendance.findOne({
       user: req.user.id,
-      checkInTime: { $gte: todayStartUTC, $lte: todayEndUTC }
+      checkInTime: { $gte: startOfTodayUTC, $lte: endOfTodayUTC }
     });
 
-    if (existingAttendance) {
-      return res.status(200).json({ message: 'Already checked in today' });
+    if (existing) {
+      return res.status(200).json({ message: 'Already checked in today' }); // ✅ 200 with message
     }
 
+    // Step 3: Save new check-in
     const attendance = new Attendance({
       user: req.user.id,
-      checkInLocation: {
-        lat: parseFloat(lat),
-        lon: parseFloat(lon)
-      },
-      checkInPhoto: req.file.filename,
-      checkInTime: new Date(), // store in UTC
+      checkInTime: new Date(),
+      checkInLocation: { lat: parseFloat(lat), lon: parseFloat(lon) },
+      checkInPhoto: req.file.filename
     });
 
     await attendance.save();
+
     res.status(201).json({ message: 'Check-in successful' });
 
   } catch (err) {
