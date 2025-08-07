@@ -184,6 +184,8 @@ router.get('/all', auth, async (req, res) => {
         duration,
         checkInLocation: rec.checkInLocation,
         checkOutLocation: rec.checkOutLocation,
+          checkInPhoto: rec.checkInPhoto || null,
+  checkOutPhoto: rec.checkOutPhoto || null,
       };
     });
 
