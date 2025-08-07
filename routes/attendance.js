@@ -30,21 +30,23 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
       return res.status(400).json({ error: 'Latitude, longitude, and photo are required' });
     }
 
-    // Get start and end of today in IST
-    const todayStart = moment().tz("Asia/Kolkata").startOf("day").toDate();
-    const todayEnd = moment().tz("Asia/Kolkata").endOf("day").toDate();
+    // Get current day start and end in IST, but store them in UTC
+    const todayStartIST = moment.tz("Asia/Kolkata").startOf('day');
+    const todayEndIST = moment.tz("Asia/Kolkata").endOf('day');
 
-    // 🔐 Check if already checked in today
+    const todayStartUTC = todayStartIST.clone().utc().toDate();
+    const todayEndUTC = todayEndIST.clone().utc().toDate();
+
+    // 🔐 Check if already checked in today (based on checkInTime)
     const existingAttendance = await Attendance.findOne({
       user: req.user.id,
-      date: { $gte: todayStart, $lte: todayEnd }
+      checkInTime: { $gte: todayStartUTC, $lte: todayEndUTC }
     });
 
     if (existingAttendance) {
       return res.status(200).json({ message: 'Already checked in today' });
     }
 
-    // Save attendance
     const attendance = new Attendance({
       user: req.user.id,
       checkInLocation: {
@@ -52,8 +54,7 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
         lon: parseFloat(lon)
       },
       checkInPhoto: req.file.filename,
-      checkInTime: new Date(), // stored in UTC
-      date: todayStart // store the normalized date (00:00 IST)
+      checkInTime: new Date(), // store in UTC
     });
 
     await attendance.save();
