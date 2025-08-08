@@ -196,8 +196,9 @@ router.get('/all', auth, async (req, res) => {
         duration,
         checkInLocation: rec.checkInLocation,
         checkOutLocation: rec.checkOutLocation,
-          checkInPhoto: rec.checkInPhoto || null,
-  checkOutPhoto: rec.checkOutPhoto || null,
+          checkInPhoto: rec.checkInPhoto ? `${req.protocol}://${req.get('host')}/uploads/${rec.checkInPhoto}` : null,
+checkOutPhoto: rec.checkOutPhoto ? `${req.protocol}://${req.get('host')}/uploads/${rec.checkOutPhoto}` : null,
+
       };
     });
 
