@@ -5,24 +5,38 @@ const auth = require('../middleware/auth');
 const moment = require('moment-timezone');
 const runMonthlyCleanup = require('../utils/monthlyCleanup');
 const multer = require('multer');
-const path = require('path');
-const { error } = require('console');
+const { v4: uuidv4 } = require('uuid');
+const cloudinary = require('cloudinary').v2;
+const streamifier = require('streamifier');
 
-// ✅ Multer storage setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, 'uploads/');
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `${req.user.id}-${Date.now()}${ext}`);
-  }
+// ✅ Cloudinary config
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUD_API_KEY,
+  api_secret: process.env.CLOUD_API_SECRET,
 });
 
-const upload = multer({ storage });
+// ✅ Use memoryStorage for multer
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ✅ Helper to upload buffer to Cloudinary
+const uploadToCloudinary = (buffer, filename) => {
+  return new Promise((resolve, reject) => {
+    const stream = cloudinary.uploader.upload_stream(
+      {
+        public_id: `attendance/${filename}`,
+        folder: 'attendance',
+      },
+      (error, result) => {
+        if (error) return reject(error);
+        resolve(result.secure_url);
+      }
+    );
+    streamifier.createReadStream(buffer).pipe(stream);
+  });
+};
 
 // ✅ Check-In
-
 router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
   try {
     const { lat, lon } = req.body;
@@ -33,41 +47,39 @@ router.post('/checkin', auth, upload.single('photo'), async (req, res) => {
 
     const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
-    // Prevent duplicate check-in
     const existing = await Attendance.findOne({
       user: req.user.id,
-      date: today
+      date: today,
     });
 
     if (existing) {
       return res.status(400).json({ error: 'Already checked in today' });
     }
 
+    const cloudinaryUrl = await uploadToCloudinary(req.file.buffer, `${req.user.id}-${Date.now()}`);
+
     const attendance = new Attendance({
       user: req.user.id,
       date: today,
       checkInLocation: {
         lat: parseFloat(lat),
-        lon: parseFloat(lon)
+        lon: parseFloat(lon),
       },
-      checkInPhoto: req.file.filename,
-      checkInTime: new Date()
+      checkInPhoto: cloudinaryUrl,
+      checkInTime: new Date(),
     });
 
     await attendance.save();
 
-    res.status(200).json({ message: 'Check-in successful' });
-
+    res.status(200).json({
+      message: 'Check-in successful',
+      checkInPhotoUrl: cloudinaryUrl,
+    });
   } catch (err) {
     console.error('Check-in error:', err);
     res.status(500).json({ error: 'Server error during check-in' });
   }
 });
-
-
-
-
-
 
 // ✅ Check-Out
 router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
@@ -80,49 +92,41 @@ router.post('/checkout', auth, upload.single('photo'), async (req, res) => {
 
     const today = moment().tz("Asia/Kolkata").format("YYYY-MM-DD");
 
-    // Debug log to verify values
-    console.log('Checkout Request:', {
-      userId: req.user.id,
-      today
-    });
-
-    // Find today's attendance record
     const attendance = await Attendance.findOne({
       user: req.user.id,
-      date: today
+      date: today,
     });
 
     if (!attendance) {
       return res.status(400).json({ error: 'No check-in record found for today' });
     }
 
-    // Prevent duplicate checkout
     if (attendance.checkOutTime) {
-      return res.status(400).json({ error: 'Already checked out today' }); // ✅ typo fixed
+      return res.status(400).json({ error: 'Already checked out today' });
     }
 
-    // Proceed to update checkout info
+    const cloudinaryUrl = await uploadToCloudinary(req.file.buffer, `${req.user.id}-${Date.now()}`);
+
     attendance.checkOutLocation = {
       lat: parseFloat(lat),
-      lon: parseFloat(lon)
+      lon: parseFloat(lon),
     };
-    attendance.checkOutPhoto = req.file.filename;
+    attendance.checkOutPhoto = cloudinaryUrl;
     attendance.checkOutTime = new Date();
 
     await attendance.save();
 
-    res.status(200).json({ message: 'Check-out successful' });
-
+    res.status(200).json({
+      message: 'Check-out successful',
+      checkOutPhotoUrl: cloudinaryUrl,
+    });
   } catch (err) {
     console.error('Check-out error:', err);
     res.status(500).json({ error: 'Server error during check-out' });
   }
 });
 
-
-
-
-// ✅ Admin route with duration (unchanged from working version)
+// ✅ Admin /all route
 router.get('/all', auth, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).send("Access denied");
 
@@ -155,7 +159,7 @@ router.get('/all', auth, async (req, res) => {
       Attendance.countDocuments(filters),
     ]);
 
-    const formatted = records.map((rec, index) => {
+    const formatted = records.map((rec) => {
       const rawCheckIn = rec.checkInTime;
       const rawCheckOut = rec.checkOutTime;
 
@@ -172,19 +176,9 @@ router.get('/all', auth, async (req, res) => {
         const checkIn = moment.utc(rawCheckIn);
         const checkOut = moment.utc(rawCheckOut);
         const diff = moment.duration(checkOut.diff(checkIn));
-
         const hours = Math.floor(diff.asHours());
         const minutes = Math.floor(diff.minutes());
-
         duration = `${hours} hr${hours !== 1 ? 's' : ''} ${minutes} min${minutes !== 1 ? 's' : ''}`;
-      }
-
-      if (index === 0) {
-        console.log("\uD83D\uDD53 Raw UTC Check-in:", rawCheckIn);
-        console.log("\uD83D\uDD56 IST Check-in:", istCheckIn);
-        console.log("\uD83D\uDD53 Raw UTC Check-out:", rawCheckOut);
-        console.log("\uD83D\uDD56 IST Check-out:", istCheckOut);
-        console.log("\u23F1️ Duration:", duration);
       }
 
       return {
@@ -196,9 +190,8 @@ router.get('/all', auth, async (req, res) => {
         duration,
         checkInLocation: rec.checkInLocation,
         checkOutLocation: rec.checkOutLocation,
-          checkInPhoto: rec.checkInPhoto ? `${req.protocol}://${req.get('host')}/uploads/${rec.checkInPhoto}` : null,
-checkOutPhoto: rec.checkOutPhoto ? `${req.protocol}://${req.get('host')}/uploads/${rec.checkOutPhoto}` : null,
-
+        checkInPhoto: rec.checkInPhoto || null,
+        checkOutPhoto: rec.checkOutPhoto || null,
       };
     });
 
